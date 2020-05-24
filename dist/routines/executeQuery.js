@@ -79,7 +79,7 @@ const executeQuery = async (connectionLogger, connection, clientConfiguration, r
       _value = callSites[_key];
       _result[_key] = {
         columnNumber: 0,
-        fileName: _value,
+        fileName: _value ? _value : "",
         lineNumber: 0
       };
     }

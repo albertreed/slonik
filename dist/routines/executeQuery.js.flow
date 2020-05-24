@@ -136,7 +136,7 @@ export default async (
     stackTrace = map(callSites, (callSite) => {
       return {
         columnNumber: 0,
-        fileName: callSite,
+        fileName: callSite ? callSite : "",
         lineNumber: 0,
       };
     });
