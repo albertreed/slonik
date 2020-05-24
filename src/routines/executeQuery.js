@@ -1,18 +1,9 @@
 // @flow
 
-import {
-  map,
-} from 'inline-loops.macro';
-import {
-  getStackTrace,
-} from 'get-stack-trace';
-import {
-  serializeError,
-} from 'serialize-error';
-import {
-  createQueryId,
-  normaliseQueryValues,
-} from '../utilities';
+import { map } from "inline-loops.macro";
+import { getStackTrace } from "get-stack-trace";
+import { serializeError } from "serialize-error";
+import { createQueryId, normaliseQueryValues } from "../utilities";
 import {
   BackendTerminatedError,
   CheckIntegrityConstraintViolationError,
@@ -23,7 +14,7 @@ import {
   StatementTimeoutError,
   UnexpectedStateError,
   UniqueIntegrityConstraintViolationError,
-} from '../errors';
+} from "../errors";
 import type {
   ClientConfigurationType,
   InternalDatabaseConnectionType,
@@ -33,7 +24,7 @@ import type {
   QueryIdType,
   QueryResultRowType,
   QueryType,
-} from '../types';
+} from "../types";
 
 type ExecutionRoutineType = (
   connection: InternalDatabaseConnectionType,
@@ -51,13 +42,13 @@ type TransactionQueryType = {|
 |};
 
 // @see https://www.postgresql.org/docs/current/errcodes-appendix.html
-const TRANSACTION_ROLLBACK_ERROR_PREFIX = '40';
+const TRANSACTION_ROLLBACK_ERROR_PREFIX = "40";
 
 const retryTransaction = async (
   connectionLogger: LoggerType,
   connection: InternalDatabaseConnectionType,
   transactionQueries: $ReadOnlyArray<TransactionQueryType>,
-  retryLimit: number,
+  retryLimit: number
 ) => {
   let result;
   let remainingRetries = retryLimit;
@@ -69,14 +60,17 @@ const retryTransaction = async (
 
     try {
       // @todo Respect SAVEPOINTs.
-      await connection.query('ROLLBACK');
-      await connection.query('BEGIN');
+      await connection.query("ROLLBACK");
+      await connection.query("BEGIN");
 
       for (const transactionQuery of transactionQueries) {
-        connectionLogger.trace({
-          attempt,
-          queryId: transactionQuery.executionContext.queryId,
-        }, 'retrying query');
+        connectionLogger.trace(
+          {
+            attempt,
+            queryId: transactionQuery.executionContext.queryId,
+          },
+          "retrying query"
+        );
 
         result = await transactionQuery.executionRoutine(
           connection,
@@ -90,11 +84,14 @@ const retryTransaction = async (
           {
             sql: transactionQuery.sql,
             values: transactionQuery.values,
-          },
+          }
         );
       }
     } catch (error) {
-      if (typeof error.code === 'string' && error.code.startsWith(TRANSACTION_ROLLBACK_ERROR_PREFIX)) {
+      if (
+        typeof error.code === "string" &&
+        error.code.startsWith(TRANSACTION_ROLLBACK_ERROR_PREFIX)
+      ) {
         continue;
       }
 
@@ -113,18 +110,20 @@ export default async (
   rawSql: string,
   values: $ReadOnlyArray<PrimitiveValueExpressionType>,
   inheritedQueryId?: QueryIdType,
-  executionRoutine: ExecutionRoutineType,
+  executionRoutine: ExecutionRoutineType
 ) => {
   if (connection.connection.slonik.terminated) {
     throw new BackendTerminatedError(connection.connection.slonik.terminated);
   }
 
-  if (rawSql.trim() === '') {
-    throw new InvalidInputError('Unexpected SQL input. Query cannot be empty.');
+  if (rawSql.trim() === "") {
+    throw new InvalidInputError("Unexpected SQL input. Query cannot be empty.");
   }
 
-  if (rawSql.trim() === '$1') {
-    throw new InvalidInputError('Unexpected SQL input. Query cannot be empty. Found only value binding.');
+  if (rawSql.trim() === "$1") {
+    throw new InvalidInputError(
+      "Unexpected SQL input. Query cannot be empty. Found only value binding."
+    );
   }
 
   const queryInputTime = process.hrtime.bigint();
@@ -132,7 +131,7 @@ export default async (
   let stackTrace = null;
 
   if (clientConfiguration.captureStackTrace) {
-    const callSites = await getStackTrace();
+    const callSites = new Error().stack;
 
     stackTrace = map(callSites, (callSite) => {
       return {
@@ -186,10 +185,15 @@ export default async (
 
   for (const interceptor of clientConfiguration.interceptors) {
     if (interceptor.beforeQueryExecution) {
-      result = await interceptor.beforeQueryExecution(executionContext, actualQuery);
+      result = await interceptor.beforeQueryExecution(
+        executionContext,
+        actualQuery
+      );
 
       if (result) {
-        log.info('beforeQueryExecution interceptor produced a result; short-circuiting query execution using beforeQueryExecution result');
+        log.info(
+          "beforeQueryExecution interceptor produced a result; short-circuiting query execution using beforeQueryExecution result"
+        );
 
         return result;
       }
@@ -202,7 +206,7 @@ export default async (
     notices.push(notice);
   };
 
-  connection.on('notice', noticeListener);
+  connection.on("notice", noticeListener);
 
   try {
     try {
@@ -221,65 +225,91 @@ export default async (
           actualQuery.sql,
           normaliseQueryValues(actualQuery.values, connection.native),
           executionContext,
-          actualQuery,
+          actualQuery
         );
       } catch (error) {
-        if (typeof error.code === 'string' && error.code.startsWith(TRANSACTION_ROLLBACK_ERROR_PREFIX) && clientConfiguration.transactionRetryLimit > 0) {
+        if (
+          typeof error.code === "string" &&
+          error.code.startsWith(TRANSACTION_ROLLBACK_ERROR_PREFIX) &&
+          clientConfiguration.transactionRetryLimit > 0
+        ) {
           result = await retryTransaction(
             connectionLogger,
             connection,
             connection.connection.slonik.transactionQueries,
-            clientConfiguration.transactionRetryLimit,
+            clientConfiguration.transactionRetryLimit
           );
         } else {
           throw error;
         }
       }
     } catch (error) {
-      log.error({
-        error: serializeError(error),
-      }, 'execution routine produced an error');
+      log.error(
+        {
+          error: serializeError(error),
+        },
+        "execution routine produced an error"
+      );
 
       // 'Connection terminated' refers to node-postgres error.
       // @see https://github.com/brianc/node-postgres/blob/eb076db5d47a29c19d3212feac26cd7b6d257a95/lib/client.js#L199
-      if (error.code === '57P01' || error.message === 'Connection terminated') {
+      if (error.code === "57P01" || error.message === "Connection terminated") {
         connection.connection.slonik.terminated = error;
 
         throw new BackendTerminatedError(error);
       }
 
-      if (error.code === '57014' && error.message.includes('canceling statement due to statement timeout')) {
+      if (
+        error.code === "57014" &&
+        error.message.includes("canceling statement due to statement timeout")
+      ) {
         throw new StatementTimeoutError(error);
       }
 
-      if (error.code === '57014') {
+      if (error.code === "57014") {
         throw new StatementCancelledError(error);
       }
 
-      if (error.code === '23502') {
-        throw new NotNullIntegrityConstraintViolationError(error, error.constraint);
+      if (error.code === "23502") {
+        throw new NotNullIntegrityConstraintViolationError(
+          error,
+          error.constraint
+        );
       }
 
-      if (error.code === '23503') {
-        throw new ForeignKeyIntegrityConstraintViolationError(error, error.constraint);
+      if (error.code === "23503") {
+        throw new ForeignKeyIntegrityConstraintViolationError(
+          error,
+          error.constraint
+        );
       }
 
-      if (error.code === '23505') {
-        throw new UniqueIntegrityConstraintViolationError(error, error.constraint);
+      if (error.code === "23505") {
+        throw new UniqueIntegrityConstraintViolationError(
+          error,
+          error.constraint
+        );
       }
 
-      if (error.code === '23514') {
-        throw new CheckIntegrityConstraintViolationError(error, error.constraint);
+      if (error.code === "23514") {
+        throw new CheckIntegrityConstraintViolationError(
+          error,
+          error.constraint
+        );
       }
 
       throw error;
     } finally {
-      connection.off('notice', noticeListener);
+      connection.off("notice", noticeListener);
     }
   } catch (error) {
     for (const interceptor of clientConfiguration.interceptors) {
       if (interceptor.queryExecutionError) {
-        await interceptor.queryExecutionError(executionContext, actualQuery, error);
+        await interceptor.queryExecutionError(
+          executionContext,
+          actualQuery,
+          error
+        );
       }
     }
 
@@ -295,7 +325,11 @@ export default async (
 
   for (const interceptor of clientConfiguration.interceptors) {
     if (interceptor.afterQueryExecution) {
-      await interceptor.afterQueryExecution(executionContext, actualQuery, result);
+      await interceptor.afterQueryExecution(
+        executionContext,
+        actualQuery,
+        result
+      );
     }
   }
 
@@ -307,9 +341,12 @@ export default async (
         const fields = result.fields;
 
         // eslint-disable-next-line no-loop-func
-        const rows: $ReadOnlyArray<QueryResultRowType> = map(result.rows, (row) => {
-          return transformRow(executionContext, actualQuery, row, fields);
-        });
+        const rows: $ReadOnlyArray<QueryResultRowType> = map(
+          result.rows,
+          (row) => {
+            return transformRow(executionContext, actualQuery, row, fields);
+          }
+        );
 
         result = {
           ...result,
@@ -321,7 +358,11 @@ export default async (
 
   for (const interceptor of clientConfiguration.interceptors) {
     if (interceptor.beforeQueryResult) {
-      await interceptor.beforeQueryResult(executionContext, actualQuery, result);
+      await interceptor.beforeQueryResult(
+        executionContext,
+        actualQuery,
+        result
+      );
     }
   }
 
