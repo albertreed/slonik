@@ -131,13 +131,13 @@ export default async (
   let stackTrace = null;
 
   if (clientConfiguration.captureStackTrace) {
-    const callSites = new Error().stack;
+    const callSites = new Error().stack.split(/\r?\n/);
 
     stackTrace = map(callSites, (callSite) => {
       return {
-        columnNumber: callSite.columnNumber,
-        fileName: callSite.fileName,
-        lineNumber: callSite.lineNumber,
+        columnNumber: 0,
+        fileName: callSite,
+        lineNumber: 0,
       };
     });
   }

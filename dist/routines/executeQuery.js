@@ -72,15 +72,15 @@ const executeQuery = async (connectionLogger, connection, clientConfiguration, r
   let stackTrace = null;
 
   if (clientConfiguration.captureStackTrace) {
-    const callSites = new Error().stack;
+    const callSites = new Error().stack.split(/\r?\n/);
     let _result = [];
 
     for (let _key = 0, _length = callSites.length, _value; _key < _length; ++_key) {
       _value = callSites[_key];
       _result[_key] = {
-        columnNumber: _value.columnNumber,
-        fileName: _value.fileName,
-        lineNumber: _value.lineNumber
+        columnNumber: 0,
+        fileName: _value,
+        lineNumber: 0
       };
     }
 
